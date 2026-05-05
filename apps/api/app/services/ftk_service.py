@@ -1,19 +1,21 @@
 """FTK token service – all balance mutations go through here.
 
 Every mutation appends an immutable row to ftk_transactions,
-keeping game_wallets.ftk_balance in sync atomically (row-level lock).
+keeping game_wallets.ftk_balance in sync atomically (row-level lock
+via SELECT … FOR UPDATE on the GameWallet row).
 """
 import uuid
 from decimal import Decimal
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ftk_ledger import FtkTransaction
 from app.models.game_wallet import GameWallet
+from app.schemas.game_wallet import TX_TYPE_GROUPS, TxTypeFilter
 
-# EXP needed to reach the next level (simple quadratic formula)
+# EXP needed to advance from `level` to `level+1`  (quadratic growth)
 _EXP_PER_LEVEL = 500
 
 
@@ -42,7 +44,20 @@ class FtkService:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Wallet not found")
         return wallet
 
-    # ── Mutations (always call inside a transaction) ───────────────────────
+    async def lock_wallet(self, user_id: str) -> GameWallet:
+        """SELECT … FOR UPDATE – acquires row-level lock for safe concurrent writes."""
+        result = await self._db.execute(
+            select(GameWallet)
+            .where(GameWallet.user_id == uuid.UUID(user_id))
+            .with_for_update()
+        )
+        wallet = result.scalar_one_or_none()
+        if wallet is None:
+            # First access – create wallet without a lock (no concurrent risk)
+            return await self.get_or_create_wallet(user_id)
+        return wallet
+
+    # ── Mutations ──────────────────────────────────────────────────────────
 
     async def credit(
         self,
@@ -52,10 +67,12 @@ class FtkService:
         reference_id: str | None = None,
         reference_type: str | None = None,
         notes: str | None = None,
+        *,
+        locked: bool = False,   # True = caller already holds SELECT FOR UPDATE
     ) -> FtkTransaction:
         if amount <= 0:
             raise ValueError("Credit amount must be positive")
-        wallet = await self.get_or_create_wallet(user_id)
+        wallet = await self.lock_wallet(user_id) if not locked else await self.get_balance(user_id)
         return await self._record(wallet, amount, tx_type, reference_id, reference_type, notes)
 
     async def debit(
@@ -66,14 +83,16 @@ class FtkService:
         reference_id: str | None = None,
         reference_type: str | None = None,
         notes: str | None = None,
+        *,
+        locked: bool = False,
     ) -> FtkTransaction:
         if amount <= 0:
             raise ValueError("Debit amount must be positive")
-        wallet = await self.get_or_create_wallet(user_id)
+        wallet = await self.lock_wallet(user_id) if not locked else await self.get_balance(user_id)
         if wallet.ftk_balance < amount:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                f"Insufficient FTK balance. Required: {amount}, available: {wallet.ftk_balance}",
+                f"Insufficient FTK. Required: {amount}, available: {wallet.ftk_balance}",
             )
         return await self._record(wallet, -amount, tx_type, reference_id, reference_type, notes)
 
@@ -106,8 +125,8 @@ class FtkService:
     # ── EXP / Level ────────────────────────────────────────────────────────
 
     async def add_exp(self, user_id: str, exp: int) -> tuple[int, bool, int | None]:
-        """Returns (new_exp, leveled_up, new_level)."""
-        wallet = await self.get_or_create_wallet(user_id)
+        """Returns (new_exp_points, leveled_up, new_level | None)."""
+        wallet = await self.lock_wallet(user_id)
         wallet.exp_points += exp
         leveled_up = False
         new_level: int | None = None
@@ -124,14 +143,37 @@ class FtkService:
     # ── Ledger history ─────────────────────────────────────────────────────
 
     async def get_history(
-        self, user_id: str, offset: int = 0, limit: int = 20
-    ) -> list[FtkTransaction]:
+        self,
+        user_id: str,
+        tx_filter: TxTypeFilter = "all",
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[FtkTransaction], int]:
+        """Returns (rows, total_count) for the given filter.
+
+        tx_filter groups:
+          earn     → mint / reward / sale / daily_checkin / achievement / mission
+          spend    → gacha / purchase / fee
+          burn     → burn
+          transfer → transfer
+          all      → no filter
+        """
         uid = uuid.UUID(user_id)
-        result = await self._db.execute(
-            select(FtkTransaction)
-            .where(FtkTransaction.user_id == uid)
-            .order_by(FtkTransaction.created_at.desc())
+        base_q = select(FtkTransaction).where(FtkTransaction.user_id == uid)
+
+        if tx_filter != "all":
+            tx_types = TX_TYPE_GROUPS.get(tx_filter, [])
+            base_q = base_q.where(FtkTransaction.tx_type.in_(tx_types))
+
+        count_result = await self._db.execute(
+            select(func.count()).select_from(base_q.subquery())
+        )
+        total: int = count_result.scalar_one()
+
+        rows_result = await self._db.execute(
+            base_q.order_by(FtkTransaction.created_at.desc())
             .offset(offset)
             .limit(limit)
         )
-        return list(result.scalars().all())
+        rows = list(rows_result.scalars().all())
+        return rows, total

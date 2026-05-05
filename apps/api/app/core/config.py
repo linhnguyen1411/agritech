@@ -21,8 +21,10 @@ class Settings(BaseSettings):
     # ── Security ──────────────────────────────────────────────────────────────
     SECRET_KEY: str = "change-me-use-openssl-rand-hex-32"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15       # short-lived access token
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7          # rolling refresh window
+    NONCE_TTL_SECONDS: int = 300                # Web3 nonce valid 5 min
+    AUTH_RATE_LIMIT_PER_MINUTE: int = 10        # stricter limit for auth endpoints
 
     # ── Database ──────────────────────────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/agritech"
@@ -57,9 +59,11 @@ class Settings(BaseSettings):
 
     # ── Game ──────────────────────────────────────────────────────────────────
     GACHA_BASE_COST_FTK: float = 100.0
-    MARKET_FEE_PERCENT: float = 2.5     # % of sale price
-    MARKET_BURN_PERCENT: float = 1.0    # % burned from fee
-    DAILY_LOGIN_BONUS_FTK: float = 10.0
+    MARKET_FEE_PERCENT: float = 2.5         # % of sale price
+    MARKET_BURN_PERCENT: float = 1.0        # % burned from fee
+    DAILY_CHECKIN_BASE_FTK: float = 10.0    # base FTK per check-in
+    STREAK_DOUBLE_THRESHOLD: int = 7        # streak day to activate x2 multiplier
+    STREAK_MILESTONE_FTK: float = 50.0      # bonus FTK on every 7-day milestone
 
     @property
     def is_production(self) -> bool:
