@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.pnpm-store/
+*.env
+!.env.example
+.turbo/
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.DS_Store
+*.log
