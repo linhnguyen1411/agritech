@@ -57,10 +57,22 @@ class Settings(BaseSettings):
             origins.append(self.CORS_PRODUCTION_ORIGIN)
         return origins
 
+    # ── MQTT (IoT farm integration) ───────────────────────────────────────────
+    MQTT_BROKER_HOST: str = "localhost"
+    MQTT_BROKER_PORT: int = 1883
+    MQTT_USERNAME: str = ""
+    MQTT_PASSWORD: str = ""
+    MQTT_ENABLED: bool = True           # set False in tests / CI
+
     # ── Game ──────────────────────────────────────────────────────────────────
     GACHA_BASE_COST_FTK: float = 100.0
     MARKET_FEE_PERCENT: float = 2.5         # % of sale price
     MARKET_BURN_PERCENT: float = 1.0        # % burned from fee
+    # Chicken feeding rewards
+    FEED_REWARD_FTK: float = 15.0
+    FEED_REWARD_EXP: int = 10
+    LIVESTREAM_TOKEN_TTL_SECONDS: int = 3600    # 1 hour
+
     DAILY_CHECKIN_BASE_FTK: float = 10.0    # base FTK per check-in
     STREAK_DOUBLE_THRESHOLD: int = 7        # streak day to activate x2 multiplier
     STREAK_MILESTONE_FTK: float = 50.0      # bonus FTK on every 7-day milestone

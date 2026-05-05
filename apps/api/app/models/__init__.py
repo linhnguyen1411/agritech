@@ -1,6 +1,7 @@
 """Import all models so that SQLAlchemy / Alembic can discover them."""
 from .achievement import AchievementDefinition, UserAchievement
 from .base import Base
+from .chicken_log import ChickenLog
 from .ftk_ledger import FtkTransaction
 from .gacha import GachaPull
 from .game_wallet import GameWallet
@@ -14,6 +15,7 @@ __all__ = [
     "Base",
     "User",
     "Chicken",
+    "ChickenLog",
     "Order",
     "NftOwnership",
     "GameWallet",
